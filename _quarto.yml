@@ -1,0 +1,23 @@
+project:
+  type: website
+  output-dir: _site
+
+website:
+  title: "QA Laser Power measurements for individual microscopes"
+  navbar:
+    left:
+      - href: index.qmd
+        text: Overview
+  page-footer:
+    center: "Generated from CSV data with Quarto"
+
+format:
+  html:
+    theme: cosmo
+    css: styles.css
+    toc: true
+    code-fold: true
+
+execute:
+  echo: false
+  warning: false
