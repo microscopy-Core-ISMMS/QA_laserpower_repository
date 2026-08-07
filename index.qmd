@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt
 from IPython.display import Markdown, display
 
 # Keep the same CSV location used in the original website guide.
-data_path = Path("data/report.csv")
+data_path = Path("data/880-405.csv")
 
 if not data_path.exists():
     raise FileNotFoundError(
