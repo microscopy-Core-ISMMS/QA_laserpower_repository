@@ -21,7 +21,7 @@ if not data_path.exists():
     raise FileNotFoundError(f"Data file was not found: {data_path}")
 
 df = pd.read_csv(data_path)
-required = {"date", "region", "product", "revenue", "orders"}
+required = {"power_percentage_values", "03-26_405_power", "03-26_405_error", "08-25_405_power", "08-25_405_error"}
 missing = required.difference(df.columns)
 
 if missing:
