@@ -1,7 +1,15 @@
 ---
-title: "Sales Performance Report"
-subtitle: "Generated from data/report.csv"
+title: "405 nm Power Calibration Report"
+subtitle: "Comparison of 03-26 and 08-25 measurements"
 jupyter: python3
+format:
+  html:
+    toc: true
+    code-fold: true
+    code-summary: "Show code"
+execute:
+  echo: false
+  warning: false
 ---
 
 ```{python}
@@ -10,176 +18,274 @@ jupyter: python3
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.ticker import StrMethodFormatter
-from IPython.display import HTML, display
+from IPython.display import Markdown, display
 
-data_path = Path("data/880-405_laserpower.csv")
+# Keep the same CSV location used in the original website guide.
+data_path = Path("data/880-405.csv")
 
 if not data_path.exists():
-    raise FileNotFoundError(f"Data file was not found: {data_path}")
-
-df = pd.read_csv(data_path)
-required = {"power_percentage_values", "03-26_405_power", "03-26_405_error", "08-25_405_power", "08-25_405_error"}
-missing = required.difference(df.columns)
-
-if missing:
-    raise ValueError(
-        "The CSV is missing these columns: "
-        + ", ".join(sorted(missing))
+    raise FileNotFoundError(
+        f"CSV file not found: {data_path}. "
+        "Upload the CSV to the data folder and name it report.csv."
     )
+
+# skipinitialspace removes spaces immediately following commas.
+df = pd.read_csv(data_path, skipinitialspace=True)
+
+# Remove accidental spaces from the column headings.
+df.columns = df.columns.str.strip()
+
+required_columns = [
+    "power_percentage_values",
+    "03-26_405_power",
+    "03-26_405_error",
+    "08-25_405_power",
+    "08-25_405_error",
+]
+
+missing_columns = [column for column in required_columns if column not in df.columns]
+
+if missing_columns:
+    raise ValueError(
+        "The CSV is missing these required columns: "
+        + ", ".join(missing_columns)
+    )
+
+# Convert blank cells, cells containing spaces, and numeric text to numbers.
+# Invalid or blank entries become NaN and are ignored only for the affected series.
+for column in required_columns:
+    df[column] = pd.to_numeric(df[column], errors="coerce")
+
+# A row without a power-percentage setting cannot be plotted.
+df = (
+    df.dropna(subset=["power_percentage_values"])
+      .sort_values("power_percentage_values")
+      .reset_index(drop=True)
+)
 
 if df.empty:
-    raise ValueError("The CSV contains no data rows.")
+    raise ValueError("The CSV does not contain any valid power-percentage values.")
 
-df["date"] = pd.to_datetime(df["date"], errors="raise")
-df["revenue"] = pd.to_numeric(df["revenue"], errors="raise")
-df["orders"] = pd.to_numeric(df["orders"], errors="raise")
+series_info = {
+    "03-26": {
+        "power": "03-26_405_power",
+        "error": "03-26_405_error",
+    },
+    "08-25": {
+        "power": "08-25_405_power",
+        "error": "08-25_405_error",
+    },
+}
 
-total_revenue = float(df["revenue"].sum())
-total_orders = int(df["orders"].sum())
-average_order_value = total_revenue / total_orders if total_orders else 0
-latest_date = df["date"].max().strftime("%B %d, %Y")
-row_count = len(df)
+summary_rows = []
+
+for label, columns in series_info.items():
+    valid = df.dropna(subset=[columns["power"], columns["error"]])
+
+    summary_rows.append(
+        {
+            "Dataset": label,
+            "Valid measurements": len(valid),
+            "Minimum measured power": valid[columns["power"]].min() if not valid.empty else np.nan,
+            "Maximum measured power": valid[columns["power"]].max() if not valid.empty else np.nan,
+            "Highest measured setting (%)": valid["power_percentage_values"].max() if not valid.empty else np.nan,
+        }
+    )
+
+summary_df = pd.DataFrame(summary_rows)
 ```
 
-## Key metrics
+## Dataset overview
 
 ```{python}
-#| echo: false
+#| label: dataset-overview
+
+power_settings = df["power_percentage_values"].nunique()
+valid_0326 = df["03-26_405_power"].notna().sum()
+valid_0825 = df["08-25_405_power"].notna().sum()
+
+missing_0326 = df.loc[
+    df["03-26_405_power"].isna(),
+    "power_percentage_values",
+].tolist()
+
+missing_0825 = df.loc[
+    df["08-25_405_power"].isna(),
+    "power_percentage_values",
+].tolist()
+
+missing_0326_text = ", ".join(f"{value:g}%" for value in missing_0326) or "None"
+missing_0825_text = ", ".join(f"{value:g}%" for value in missing_0825) or "None"
 
 display(
-    HTML(
+    Markdown(
         f"""
-        <div class="metric-grid">
-          <div class="metric-card">
-            <span class="metric-label">Total revenue</span>
-            <span class="metric-value">${total_revenue:,.0f}</span>
-          </div>
-          <div class="metric-card">
-            <span class="metric-label">Total orders</span>
-            <span class="metric-value">{total_orders:,}</span>
-          </div>
-          <div class="metric-card">
-            <span class="metric-label">Average order value</span>
-            <span class="metric-value">${average_order_value:,.2f}</span>
-          </div>
-          <div class="metric-card">
-            <span class="metric-label">Latest reporting date</span>
-            <span class="metric-value">{latest_date}</span>
-          </div>
-        </div>
-        """
+- **Power settings represented:** {power_settings}
+- **03-26 valid power readings:** {valid_0326}
+- **08-25 valid power readings:** {valid_0825}
+- **Missing 03-26 readings:** {missing_0326_text}
+- **Missing 08-25 readings:** {missing_0825_text}
+
+Blank cells are retained as missing values. They do not prevent the available measurements from being plotted.
+"""
     )
 )
 ```
 
-The report currently contains **`{python} row_count` data rows**.
-
-## Revenue over time
+## 405 nm power calibration curves
 
 ```{python}
-#| echo: false
-#| fig-cap: "Total revenue by reporting month"
+#| label: power-calibration-plot
+#| fig-cap: "Measured 405 nm power versus the selected power percentage. Error bars use the corresponding error columns in the CSV."
 #| fig-width: 9
-#| fig-height: 5
-
-monthly_revenue = (
-    df.assign(month=df["date"].dt.to_period("M").dt.to_timestamp())
-    .groupby("month", as_index=False)
-    .agg(revenue=("revenue", "sum"))
-    .sort_values("month")
-)
+#| fig-height: 6
 
 fig, ax = plt.subplots()
-ax.plot(monthly_revenue["month"], monthly_revenue["revenue"], marker="o")
-ax.set_xlabel("")
-ax.set_ylabel("Revenue")
-ax.yaxis.set_major_formatter(StrMethodFormatter("${x:,.0f}"))
-ax.grid(axis="y", alpha=0.25)
-fig.autofmt_xdate()
+
+for label, columns in series_info.items():
+    plot_data = df.dropna(
+        subset=[
+            "power_percentage_values",
+            columns["power"],
+            columns["error"],
+        ]
+    )
+
+    if plot_data.empty:
+        continue
+
+    ax.errorbar(
+        plot_data["power_percentage_values"],
+        plot_data[columns["power"]],
+        yerr=plot_data[columns["error"]],
+        marker="o",
+        capsize=4,
+        linewidth=1.5,
+        label=label,
+    )
+
+ax.set_title("405 nm power calibration")
+ax.set_xlabel("Power setting (%)")
+ax.set_ylabel("Measured power")
+ax.set_xlim(left=0, right=100)
+ax.grid(True, alpha=0.25)
+ax.legend(title="Dataset")
+
 plt.tight_layout()
 plt.show()
 ```
 
-## Revenue by region
+## Measurement summary
 
 ```{python}
-#| echo: false
-#| fig-cap: "Revenue contribution by region"
-#| fig-width: 9
-#| fig-height: 5
+#| label: measurement-summary
 
-regional_summary = (
-    df.groupby("region", as_index=False)
-    .agg(revenue=("revenue", "sum"), orders=("orders", "sum"))
-    .sort_values("revenue", ascending=False)
-)
+summary_display = summary_df.copy()
 
-fig, ax = plt.subplots()
-ax.bar(regional_summary["region"], regional_summary["revenue"])
-ax.set_xlabel("")
-ax.set_ylabel("Revenue")
-ax.yaxis.set_major_formatter(StrMethodFormatter("${x:,.0f}"))
-ax.grid(axis="y", alpha=0.25)
-plt.tight_layout()
-plt.show()
+for column in [
+    "Minimum measured power",
+    "Maximum measured power",
+    "Highest measured setting (%)",
+]:
+    summary_display[column] = summary_display[column].map(
+        lambda value: "-" if pd.isna(value) else f"{value:,.1f}"
+    )
+
+display(summary_display)
 ```
 
-## Regional summary
+## Measurements at shared power settings
+
+This comparison includes only rows where both datasets contain a measured power value.
 
 ```{python}
-#| echo: false
+#| label: shared-settings
 
-regional_table = regional_summary.rename(
-    columns={"region": "Region", "revenue": "Revenue", "orders": "Orders"}
+shared = df.dropna(
+    subset=[
+        "03-26_405_power",
+        "08-25_405_power",
+    ]
+).copy()
+
+shared["Difference (03-26 minus 08-25)"] = (
+    shared["03-26_405_power"] - shared["08-25_405_power"]
+)
+
+shared["Relative difference (%)"] = np.where(
+    shared["08-25_405_power"] != 0,
+    100
+    * shared["Difference (03-26 minus 08-25)"]
+    / shared["08-25_405_power"],
+    np.nan,
+)
+
+shared_table = shared[
+    [
+        "power_percentage_values",
+        "03-26_405_power",
+        "08-25_405_power",
+        "Difference (03-26 minus 08-25)",
+        "Relative difference (%)",
+    ]
+].rename(
+    columns={
+        "power_percentage_values": "Power setting (%)",
+        "03-26_405_power": "03-26 power",
+        "08-25_405_power": "08-25 power",
+    }
+)
+
+if shared_table.empty:
+    display(Markdown("No power settings contain measurements for both datasets."))
+else:
+    display(
+        shared_table.style.format(
+            {
+                "Power setting (%)": "{:.0f}",
+                "03-26 power": "{:,.1f}",
+                "08-25 power": "{:,.1f}",
+                "Difference (03-26 minus 08-25)": "{:,.1f}",
+                "Relative difference (%)": lambda value: (
+                    "-" if pd.isna(value) else f"{value:,.1f}%"
+                ),
+            }
+        )
+    )
+```
+
+## Complete CSV data
+
+```{python}
+#| label: complete-data
+
+complete_table = df.rename(
+    columns={
+        "power_percentage_values": "Power setting (%)",
+        "03-26_405_power": "03-26 power",
+        "03-26_405_error": "03-26 error",
+        "08-25_405_power": "08-25 power",
+        "08-25_405_error": "08-25 error",
+    }
 )
 
 display(
-    HTML(
-        regional_table.to_html(
-            index=False,
-            border=0,
-            classes="dataframe",
-            formatters={
-                "Revenue": lambda value: f"${value:,.0f}",
-                "Orders": lambda value: f"{value:,.0f}",
-            },
-        )
+    complete_table.style.format(
+        {
+            "Power setting (%)": lambda value: "-" if pd.isna(value) else f"{value:.0f}",
+            "03-26 power": lambda value: "-" if pd.isna(value) else f"{value:,.1f}",
+            "03-26 error": lambda value: "-" if pd.isna(value) else f"{value:,.1f}",
+            "08-25 power": lambda value: "-" if pd.isna(value) else f"{value:,.1f}",
+            "08-25 error": lambda value: "-" if pd.isna(value) else f"{value:,.1f}",
+        },
+        na_rep="-",
     )
 )
 ```
 
-## Product performance
-
-```{python}
-#| echo: false
-
-product_summary = (
-    df.groupby("product", as_index=False)
-    .agg(revenue=("revenue", "sum"), orders=("orders", "sum"))
-    .sort_values("revenue", ascending=False)
-    .rename(
-        columns={"product": "Product", "revenue": "Revenue", "orders": "Orders"}
-    )
-)
-
-display(
-    HTML(
-        product_summary.to_html(
-            index=False,
-            border=0,
-            classes="dataframe",
-            formatters={
-                "Revenue": lambda value: f"${value:,.0f}",
-                "Orders": lambda value: f"{value:,.0f}",
-            },
-        )
-    )
-)
-```
-
-::: {.report-note}
-This report is rebuilt automatically whenever the CSV or Quarto source files are committed to the main branch.
+::: {.callout-note}
+The report reads `data/report.csv`. To update the website, replace that CSV while preserving the five column names, and then commit the change to GitHub.
 :::
