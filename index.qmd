@@ -1,0 +1,185 @@
+---
+title: "Sales Performance Report"
+subtitle: "Generated from data/report.csv"
+jupyter: python3
+---
+
+```{python}
+#| label: setup
+#| include: false
+
+from pathlib import Path
+
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.ticker import StrMethodFormatter
+from IPython.display import HTML, display
+
+data_path = Path("data/report.csv")
+
+if not data_path.exists():
+    raise FileNotFoundError(f"Data file was not found: {data_path}")
+
+df = pd.read_csv(data_path)
+required = {"date", "region", "product", "revenue", "orders"}
+missing = required.difference(df.columns)
+
+if missing:
+    raise ValueError(
+        "The CSV is missing these columns: "
+        + ", ".join(sorted(missing))
+    )
+
+if df.empty:
+    raise ValueError("The CSV contains no data rows.")
+
+df["date"] = pd.to_datetime(df["date"], errors="raise")
+df["revenue"] = pd.to_numeric(df["revenue"], errors="raise")
+df["orders"] = pd.to_numeric(df["orders"], errors="raise")
+
+total_revenue = float(df["revenue"].sum())
+total_orders = int(df["orders"].sum())
+average_order_value = total_revenue / total_orders if total_orders else 0
+latest_date = df["date"].max().strftime("%B %d, %Y")
+row_count = len(df)
+```
+
+## Key metrics
+
+```{python}
+#| echo: false
+
+display(
+    HTML(
+        f"""
+        <div class="metric-grid">
+          <div class="metric-card">
+            <span class="metric-label">Total revenue</span>
+            <span class="metric-value">${total_revenue:,.0f}</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Total orders</span>
+            <span class="metric-value">{total_orders:,}</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Average order value</span>
+            <span class="metric-value">${average_order_value:,.2f}</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Latest reporting date</span>
+            <span class="metric-value">{latest_date}</span>
+          </div>
+        </div>
+        """
+    )
+)
+```
+
+The report currently contains **`{python} row_count` data rows**.
+
+## Revenue over time
+
+```{python}
+#| echo: false
+#| fig-cap: "Total revenue by reporting month"
+#| fig-width: 9
+#| fig-height: 5
+
+monthly_revenue = (
+    df.assign(month=df["date"].dt.to_period("M").dt.to_timestamp())
+    .groupby("month", as_index=False)
+    .agg(revenue=("revenue", "sum"))
+    .sort_values("month")
+)
+
+fig, ax = plt.subplots()
+ax.plot(monthly_revenue["month"], monthly_revenue["revenue"], marker="o")
+ax.set_xlabel("")
+ax.set_ylabel("Revenue")
+ax.yaxis.set_major_formatter(StrMethodFormatter("${x:,.0f}"))
+ax.grid(axis="y", alpha=0.25)
+fig.autofmt_xdate()
+plt.tight_layout()
+plt.show()
+```
+
+## Revenue by region
+
+```{python}
+#| echo: false
+#| fig-cap: "Revenue contribution by region"
+#| fig-width: 9
+#| fig-height: 5
+
+regional_summary = (
+    df.groupby("region", as_index=False)
+    .agg(revenue=("revenue", "sum"), orders=("orders", "sum"))
+    .sort_values("revenue", ascending=False)
+)
+
+fig, ax = plt.subplots()
+ax.bar(regional_summary["region"], regional_summary["revenue"])
+ax.set_xlabel("")
+ax.set_ylabel("Revenue")
+ax.yaxis.set_major_formatter(StrMethodFormatter("${x:,.0f}"))
+ax.grid(axis="y", alpha=0.25)
+plt.tight_layout()
+plt.show()
+```
+
+## Regional summary
+
+```{python}
+#| echo: false
+
+regional_table = regional_summary.rename(
+    columns={"region": "Region", "revenue": "Revenue", "orders": "Orders"}
+)
+
+display(
+    HTML(
+        regional_table.to_html(
+            index=False,
+            border=0,
+            classes="dataframe",
+            formatters={
+                "Revenue": lambda value: f"${value:,.0f}",
+                "Orders": lambda value: f"{value:,.0f}",
+            },
+        )
+    )
+)
+```
+
+## Product performance
+
+```{python}
+#| echo: false
+
+product_summary = (
+    df.groupby("product", as_index=False)
+    .agg(revenue=("revenue", "sum"), orders=("orders", "sum"))
+    .sort_values("revenue", ascending=False)
+    .rename(
+        columns={"product": "Product", "revenue": "Revenue", "orders": "Orders"}
+    )
+)
+
+display(
+    HTML(
+        product_summary.to_html(
+            index=False,
+            border=0,
+            classes="dataframe",
+            formatters={
+                "Revenue": lambda value: f"${value:,.0f}",
+                "Orders": lambda value: f"{value:,.0f}",
+            },
+        )
+    )
+)
+```
+
+::: {.report-note}
+This report is rebuilt automatically whenever the CSV or Quarto source files are committed to the main branch.
+:::
