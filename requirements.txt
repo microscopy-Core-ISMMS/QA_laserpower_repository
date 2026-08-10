@@ -1,7 +1,4 @@
 jupyter
-pandas as pd
-matplotlib.pyplot as plt
-glob
-os
-re
-shutil # Import the shutil module
+pandas
+matplotlib
+
