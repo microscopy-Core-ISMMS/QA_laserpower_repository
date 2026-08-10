@@ -1,6 +1,6 @@
 ---
-title: "405 nm Power Calibration Report"
-subtitle: "Comparison of 03-26 and 08-25 measurements"
+title: "LSM880 Laser Power Measurements"
+subtitle: "Monthly measurements of Laser Power"
 jupyter: python3
 format:
   html:
